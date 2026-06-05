@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChaoSeed - true randomness from physical chaos</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>ChaoSeed</h1>
+      <p class="tagline">Randomness from chaos &mdash; watch it, prove it, use it.</p>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>1 &middot; Source</h2>
+        <p class="hint">Point your camera at anything chaotic: your hand, water, smoke, a lamp&hellip; even sensor noise works.</p>
+        <video id="video" playsinline muted></video>
+        <canvas id="canvas" hidden></canvas>
+        <button id="startBtn">Start camera</button>
+        <p id="status" class="status"></p>
+      </section>
+
+      <section class="panel">
+        <h2>2 &middot; Live entropy</h2>
+        <pre id="stream" class="stream"></pre>
+        <div class="stats">
+          <span>Bytes generated: <b id="byteCount">0</b></span>
+          <span>Bit balance: <b id="bitBalance">--</b> <small>(ideal 50%)</small></span>
+        </div>
+        <p class="hint">TODO: NIST SP 800-22 tests + a real min-entropy estimate go here.</p>
+      </section>
+
+      <section class="panel">
+        <h2>3 &middot; Use it</h2>
+        <div class="gens">
+          <button id="genNumber">Random number</button>
+          <button id="genPassword">Password</button>
+          <button id="genDice">Roll dice</button>
+          <button id="download">Download 1 KB</button>
+        </div>
+        <pre id="genOut" class="gen-out"></pre>
+      </section>
+    </main>
+
+    <footer>
+      <p>Open-source (MIT) &middot; educational/demonstrative &middot; entropy is mixed with your OS RNG, so output is never weaker than the system.</p>
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
