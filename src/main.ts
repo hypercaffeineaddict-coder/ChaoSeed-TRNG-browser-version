@@ -1,137 +1,269 @@
-// ChaoSeed - browser TRNG. Harvests entropy from webcam chaos, conditions it with
-// SHA-3, mixes with the OS CSPRNG, and lets you use the randomness.
-//
-// This is a RUNNABLE FOUNDATION. The rigorous parts (marked TODO(you)) are where the
-// real engineering - and your Hackatime hours - go. Keep building!
-
-import { sha3_256 } from "@noble/hashes/sha3";
+import { pool, extractFromFrame, extractFromAudio, condition, computeDeltaMap, getStats } from './entropy.ts';
+import { runAllTests, estimateMinEntropy } from './nist.ts';
+import { randomNumber, generatePassword, rollDice } from './generators.ts';
+import { encrypt, decrypt, canEncrypt } from './crypto.ts';
+import { renderLavaHeatmap, createHeatmapLUT } from './visualization.ts';
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
 const video = $("video") as HTMLVideoElement;
 const canvas = $("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+const lavaCanvas = $("lavaCanvas") as HTMLCanvasElement;
 
-// Entropy != megapixels: capture at LOW resolution. The randomness comes from
-// inter-frame change + sensor noise, not from pixel count.
 const W = 160, H = 120;
 canvas.width = W;
 canvas.height = H;
 
-const pool: number[] = [];        // conditioned random bytes, ready to use
 let prevFrame: Uint8ClampedArray | null = null;
-let rawBuf: number[] = [];        // raw low-bit noise awaiting conditioning
-let totalBytes = 0;
-let ones = 0, bitCount = 0;       // for a simple bit-balance (monobit) stat
 let running = false;
+let micRunning = false;
+let audioContext: AudioContext | null = null;
+let analyser: AnalyserNode | null = null;
+let micStream: MediaStream | null = null;
+let videoStream: MediaStream | null = null;
+
+let lastEntropyEstimationRawBits: number[] = [];
+let nistTimer: number = 0;
 
 function setStatus(s: string) { $("status").textContent = s; }
 
 async function startCamera() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: W, height: H } });
-    video.srcObject = stream;
-    await video.play();
-    running = true;
-    setStatus("Harvesting entropy from your camera...");
-    requestAnimationFrame(loop);
-  } catch (e) {
-    setStatus("Camera unavailable: " + (e as Error).message);
-  }
+    if (running) {
+        // Stop
+        running = false;
+        videoStream?.getTracks().forEach(t => t.stop());
+        videoStream = null;
+        $("startBtn").innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg> Start Camera`;
+        $("videoLabel").textContent = "Camera Off";
+        $("startBtn").classList.remove("active");
+        lavaCanvas.classList.remove("active");
+        setStatus("Camera stopped.");
+        return;
+    }
+
+    try {
+        videoStream = await navigator.mediaDevices.getUserMedia({ video: { width: W, height: H } });
+        video.srcObject = videoStream;
+        await video.play();
+        running = true;
+        
+        $("startBtn").innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Stop Camera`;
+        $("videoLabel").textContent = "";
+        $("startBtn").classList.add("active");
+        lavaCanvas.classList.add("active");
+        
+        setStatus("Harvesting entropy from your camera...");
+        requestAnimationFrame(loop);
+    } catch (e) {
+        setStatus("Camera unavailable: " + (e as Error).message);
+    }
+}
+
+async function toggleMic() {
+    if (micRunning) {
+        micRunning = false;
+        micStream?.getTracks().forEach(t => t.stop());
+        audioContext?.close();
+        audioContext = null;
+        analyser = null;
+        $("micBtn").classList.remove("active");
+        setStatus(running ? "Camera entropy active." : "All sources stopped.");
+        return;
+    }
+
+    try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioContext = new AudioContext();
+        const source = audioContext.createMediaStreamSource(micStream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        source.connect(analyser);
+        
+        micRunning = true;
+        $("micBtn").classList.add("active");
+        setStatus("Harvesting entropy from microphone...");
+        
+        if (!running) {
+            requestAnimationFrame(loop);
+        }
+    } catch (e) {
+        setStatus("Microphone unavailable: " + (e as Error).message);
+    }
 }
 
 function loop() {
-  if (!running) return;
-  ctx.drawImage(video, 0, 0, W, H);
-  const frame = ctx.getImageData(0, 0, W, H).data;
+    if (!running && !micRunning) return;
 
-  // --- extract: low bits of the per-pixel delta (motion + sensor shot noise) ---
-  if (prevFrame) {
-    for (let i = 0; i < frame.length; i += 4) {
-      const d =
-        ((frame[i] ^ prevFrame[i]) & 1) |
-        (((frame[i + 1] ^ prevFrame[i + 1]) & 1) << 1) |
-        (((frame[i + 2] ^ prevFrame[i + 2]) & 1) << 2);
-      if (d !== 0) rawBuf.push(d & 0xff);
-      // TODO(you): add von Neumann debiasing to remove bias before conditioning.
-    }
-  }
-  prevFrame = frame.slice();
+    let rawBits: number[] = [];
 
-  // --- condition: hash the raw noise into uniform bytes, then mix with OS RNG ---
-  if (rawBuf.length >= 1024) {
-    const raw = Uint8Array.from(rawBuf.splice(0, rawBuf.length));
-    const block = sha3_256(raw);                       // SHA-3 extractor
-    const os = crypto.getRandomValues(new Uint8Array(block.length)); // never weaker than OS
-    for (let i = 0; i < block.length; i++) {
-      const b = block[i] ^ os[i];
-      pool.push(b);
-      totalBytes++;
-      for (let k = 0; k < 8; k++) { ones += (b >> k) & 1; bitCount++; }
+    if (running && video.readyState === video.HAVE_ENOUGH_DATA) {
+        ctx.drawImage(video, 0, 0, W, H);
+        const frame = ctx.getImageData(0, 0, W, H).data;
+
+        if (prevFrame) {
+            const camBits = extractFromFrame(frame, prevFrame);
+            rawBits.push(...camBits);
+            
+            // Visualization
+            const deltaMap = computeDeltaMap(frame, prevFrame, W, H);
+            renderLavaHeatmap(lavaCanvas, deltaMap, W, H);
+        }
+        prevFrame = frame.slice();
     }
-    render();
-  }
-  // TODO(you): NIST SP 800-22 tests (monobit, runs, ...) + a real min-entropy estimate.
-  requestAnimationFrame(loop);
+
+    if (micRunning && analyser) {
+        const floatData = new Float32Array(analyser.frequencyBinCount);
+        analyser.getFloatTimeDomainData(floatData);
+        const micBits = extractFromAudio(floatData);
+        rawBits.push(...micBits);
+    }
+
+    if (rawBits.length > 0) {
+        lastEntropyEstimationRawBits.push(...rawBits);
+        if (lastEntropyEstimationRawBits.length > 4096) {
+            // Keep last N bits for min-entropy estimation
+            lastEntropyEstimationRawBits = lastEntropyEstimationRawBits.slice(-4096);
+        }
+        condition(rawBits);
+        renderStats();
+    }
+
+    requestAnimationFrame(loop);
 }
 
-function render() {
-  const last = pool.slice(-32).map((b) => b.toString(16).padStart(2, "0")).join(" ");
-  $("stream").textContent = last;
-  $("byteCount").textContent = String(totalBytes);
-  const balance = bitCount ? ((ones / bitCount) * 100).toFixed(2) + "%" : "--";
-  $("bitBalance").textContent = balance;
+function renderStats() {
+    const stats = getStats();
+    $("byteCount").textContent = String(stats.totalBytes);
+    const balance = stats.bitCount ? ((stats.ones / stats.bitCount) * 100).toFixed(2) + "%" : "--";
+    $("bitBalance").textContent = balance;
+    $("poolSize").textContent = String(pool.size());
+
+    // Update hex stream
+    const last = pool.lastN(32);
+    if (last.length > 0) {
+        $("stream").textContent = Array.from(last).map(b => b.toString(16).padStart(2, "0")).join(" ");
+    }
 }
 
-// Draw n bytes from the pool (falls back to the OS RNG if the pool is low).
-function takeBytes(n: number): Uint8Array {
-  const out = new Uint8Array(n);
-  for (let i = 0; i < n; i++) {
-    out[i] = pool.length ? pool.shift()! : crypto.getRandomValues(new Uint8Array(1))[0];
-  }
-  return out;
+function updateNistTests() {
+    if (pool.size() < 256) return;
+
+    const testBytes = pool.lastN(2048); // max 2KB for tests
+    const results = runAllTests(testBytes);
+    
+    const resultsContainer = $("nistResults");
+    resultsContainer.innerHTML = "";
+    
+    for (const res of results) {
+        const passClass = res.passed ? 'pass' : 'fail';
+        const pValDisplay = res.pValue.toFixed(6);
+        resultsContainer.innerHTML += `
+            <div class="nist-test-card ${passClass}">
+                <div class="nist-badge ${passClass}">${res.passed ? 'PASS' : 'FAIL'}</div>
+                <div class="nist-test-name">${res.name} <span class="nist-test-pval">(p = ${pValDisplay})</span></div>
+            </div>
+        `;
+    }
+
+    if (lastEntropyEstimationRawBits.length >= 1024) {
+        const ent = estimateMinEntropy(lastEntropyEstimationRawBits);
+        $("minEntropy").textContent = ent.bitsPerSample.toFixed(2);
+        
+        const warningEl = $("entropyWarning");
+        const warningText = $("entropyWarningText");
+        
+        if (ent.warning) {
+            warningEl.hidden = false;
+            warningText.textContent = ent.warning;
+        } else {
+            warningEl.hidden = true;
+        }
+    }
 }
 
 function showGen(text: string) { $("genOut").textContent = text; }
 
-// --- generators (consume the entropy pool) ---
-function randomNumber() {
-  const b = takeBytes(4);
-  const v = new DataView(b.buffer).getUint32(0) % 100 + 1;
-  showGen("Random number (1-100): " + v);
-}
-
-function password() {
-  const charset = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*";
-  const b = takeBytes(20);
-  let pw = "";
-  for (const x of b) pw += charset[x % charset.length];
-  showGen("Password: " + pw);
-}
-
-function dice() {
-  const b = takeBytes(1);
-  showGen("Dice roll: " + (b[0] % 6 + 1));
-}
-
-function download() {
-  const blob = new Blob([takeBytes(1024)], { type: "application/octet-stream" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "chaoseed-random.bin";
-  a.click();
-  showGen("Downloaded 1 KB of random bytes.");
-}
-
+// --- UI Binding ---
 $("startBtn").addEventListener("click", startCamera);
-$("genNumber").addEventListener("click", randomNumber);
-$("genPassword").addEventListener("click", password);
-$("genDice").addEventListener("click", dice);
-$("download").addEventListener("click", download);
+$("micBtn").addEventListener("click", toggleMic);
 
-// TODO(you) - milestones to build next (each = real hours + a devlog):
-//  M3: implement NIST SP 800-22 monobit + runs tests; show pass/fail live.
-//  M3: estimate min-entropy and bound the output rate by it (don't overclaim).
-//  M4: von Neumann debiasing; add a "lava" visualisation of the entropy.
-//  M4: extra sources (microphone, a double-pendulum simulation as a no-camera fallback).
-//  Stretch: encrypt a message/file with the entropy (XChaCha20-Poly1305).
+$("genNumber").addEventListener("click", () => {
+    showGen("Random number (1-100): " + randomNumber(pool.take, 1, 100));
+    renderStats();
+});
+
+$("genPassword").addEventListener("click", () => {
+    showGen("Password: " + generatePassword(pool.take, 20));
+    renderStats();
+});
+
+$("genDice").addEventListener("click", () => {
+    showGen("Dice roll: " + rollDice(pool.take, 6));
+    renderStats();
+});
+
+$("download").addEventListener("click", () => {
+    const data = pool.take(1024);
+    const blob = new Blob([data], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "chaoseed-random.bin";
+    a.click();
+    URL.revokeObjectURL(url);
+    showGen("Downloaded 1 KB of random bytes.");
+    renderStats();
+});
+
+$("encryptBtn").addEventListener("click", () => {
+    const plain = ($("plaintext") as HTMLTextAreaElement).value;
+    if (!plain) {
+        $("encryptStatus").textContent = "Enter plaintext to encrypt.";
+        $("encryptStatus").className = "encrypt-status error";
+        return;
+    }
+    if (!canEncrypt(pool.size())) {
+        $("encryptStatus").textContent = "Not enough entropy in the pool (need 56 bytes). Wait or add motion.";
+        $("encryptStatus").className = "encrypt-status error";
+        return;
+    }
+    
+    try {
+        const enc = encrypt(plain, pool.take);
+        ($("cipherOut") as HTMLTextAreaElement).value = enc.ciphertext;
+        $("keyHex").textContent = enc.key;
+        $("nonceHex").textContent = enc.nonce;
+        $("keyDisplay").hidden = false;
+        $("encryptStatus").textContent = "Encrypted successfully with true random key/nonce.";
+        $("encryptStatus").className = "encrypt-status success";
+        renderStats();
+    } catch (e: any) {
+        $("encryptStatus").textContent = "Error: " + e.message;
+        $("encryptStatus").className = "encrypt-status error";
+    }
+});
+
+$("decryptBtn").addEventListener("click", () => {
+    const cipher = ($("cipherOut") as HTMLTextAreaElement).value;
+    const key = $("keyHex").textContent || "";
+    const nonce = $("nonceHex").textContent || "";
+    
+    if (!cipher || !key || !nonce) {
+        $("encryptStatus").textContent = "Missing ciphertext, key, or nonce.";
+        $("encryptStatus").className = "encrypt-status error";
+        return;
+    }
+    
+    try {
+        const plain = decrypt(cipher, key, nonce);
+        ($("plaintext") as HTMLTextAreaElement).value = plain;
+        $("encryptStatus").textContent = "Decrypted successfully.";
+        $("encryptStatus").className = "encrypt-status success";
+    } catch (e: any) {
+        $("encryptStatus").textContent = "Decryption failed: " + e.message;
+        $("encryptStatus").className = "encrypt-status error";
+    }
+});
+
+setInterval(updateNistTests, 2000);

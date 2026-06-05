@@ -3,49 +3,165 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ChaoSeed - true randomness from physical chaos</title>
+    <meta name="description" content="A browser-based true random number generator that harvests entropy from physical chaos. Point your webcam at anything chaotic and generate provably random bytes — locally, privately, with no data leaving your machine." />
+    <title>ChaoSeed — True Randomness from Physical Chaos</title>
     <link rel="stylesheet" href="/src/style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
+    <div class="noise-overlay"></div>
+
     <header>
-      <h1>ChaoSeed</h1>
+      <div class="logo-lockup">
+        <div class="logo-icon">
+          <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="24" cy="24" r="22" stroke="url(#g1)" stroke-width="2.5" opacity="0.5"/>
+            <circle cx="24" cy="24" r="14" stroke="url(#g1)" stroke-width="2" opacity="0.7"/>
+            <circle cx="24" cy="24" r="6" fill="url(#g1)" opacity="0.9"/>
+            <circle cx="24" cy="12" r="2.5" fill="#6ad7c6"/>
+            <circle cx="34" cy="30" r="2" fill="#b69cff"/>
+            <circle cx="14" cy="30" r="2" fill="#ff7eb3"/>
+            <defs><linearGradient id="g1" x1="0" y1="0" x2="48" y2="48"><stop stop-color="#6ad7c6"/><stop offset="1" stop-color="#b69cff"/></linearGradient></defs>
+          </svg>
+        </div>
+        <h1>ChaoSeed</h1>
+      </div>
       <p class="tagline">Randomness from chaos &mdash; watch it, prove it, use it.</p>
+      <div class="local-badge">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        100% Local &middot; No Data Leaves Your Machine
+      </div>
     </header>
 
     <main>
-      <section class="panel">
-        <h2>1 &middot; Source</h2>
+      <!-- Source Panel -->
+      <section class="panel source-panel" id="sourcePanel">
+        <div class="panel-header">
+          <h2><span class="step-num">01</span> Source</h2>
+          <div class="source-toggles">
+            <button id="startBtn" class="btn btn-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg>
+              Start Camera
+            </button>
+            <button id="micBtn" class="btn btn-secondary" title="Add microphone entropy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="1" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+              Mic
+            </button>
+          </div>
+        </div>
         <p class="hint">Point your camera at anything chaotic: your hand, water, smoke, a lamp&hellip; even sensor noise works.</p>
-        <video id="video" playsinline muted></video>
-        <canvas id="canvas" hidden></canvas>
-        <button id="startBtn">Start camera</button>
+        <div class="video-container">
+          <video id="video" playsinline muted></video>
+          <canvas id="canvas" hidden></canvas>
+          <canvas id="lavaCanvas" class="lava-canvas"></canvas>
+          <div class="video-label" id="videoLabel">Camera Off</div>
+        </div>
         <p id="status" class="status"></p>
       </section>
 
-      <section class="panel">
-        <h2>2 &middot; Live entropy</h2>
-        <pre id="stream" class="stream"></pre>
-        <div class="stats">
-          <span>Bytes generated: <b id="byteCount">0</b></span>
-          <span>Bit balance: <b id="bitBalance">--</b> <small>(ideal 50%)</small></span>
+      <!-- Live Entropy Panel -->
+      <section class="panel entropy-panel" id="entropyPanel">
+        <div class="panel-header">
+          <h2><span class="step-num">02</span> Live Entropy</h2>
         </div>
-        <p class="hint">TODO: NIST SP 800-22 tests + a real min-entropy estimate go here.</p>
+        <div class="hex-stream-container">
+          <pre id="stream" class="stream"></pre>
+          <div class="stream-fade"></div>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-label">Bytes Generated</span>
+            <span class="stat-value" id="byteCount">0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Bit Balance</span>
+            <span class="stat-value" id="bitBalance">--</span>
+            <span class="stat-ideal">ideal 50%</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Pool Size</span>
+            <span class="stat-value" id="poolSize">0</span>
+            <span class="stat-ideal">max 64 KB</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Min-Entropy</span>
+            <span class="stat-value" id="minEntropy">--</span>
+            <span class="stat-ideal">bits/sample</span>
+          </div>
+        </div>
       </section>
 
-      <section class="panel">
-        <h2>3 &middot; Use it</h2>
+      <!-- NIST Tests Panel -->
+      <section class="panel nist-panel" id="nistPanel">
+        <div class="panel-header">
+          <h2><span class="step-num">03</span> Prove It</h2>
+          <span class="nist-label">NIST SP 800-22</span>
+        </div>
+        <p class="hint">Statistical tests run on the last 2048 conditioned bytes, auto-refreshing every 2 seconds.</p>
+        <div id="nistResults" class="nist-results">
+          <div class="nist-placeholder">Start the camera to begin testing&hellip;</div>
+        </div>
+        <div id="entropyWarning" class="entropy-warning" hidden>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 22h20L12 2z"/><line x1="12" y1="9" x2="12" y2="15"/><circle cx="12" cy="18" r="0.5"/></svg>
+          <span id="entropyWarningText"></span>
+        </div>
+      </section>
+
+      <!-- Use It Panel -->
+      <section class="panel use-panel" id="usePanel">
+        <div class="panel-header">
+          <h2><span class="step-num">04</span> Use It</h2>
+        </div>
         <div class="gens">
-          <button id="genNumber">Random number</button>
-          <button id="genPassword">Password</button>
-          <button id="genDice">Roll dice</button>
-          <button id="download">Download 1 KB</button>
+          <button id="genNumber" class="btn btn-gen">
+            <span class="btn-icon">#</span> Random Number
+          </button>
+          <button id="genPassword" class="btn btn-gen">
+            <span class="btn-icon">🔑</span> Password
+          </button>
+          <button id="genDice" class="btn btn-gen">
+            <span class="btn-icon">🎲</span> Roll Dice
+          </button>
+          <button id="download" class="btn btn-gen">
+            <span class="btn-icon">⬇</span> Download 1 KB
+          </button>
         </div>
         <pre id="genOut" class="gen-out"></pre>
+      </section>
+
+      <!-- Encryption Panel -->
+      <section class="panel encrypt-panel" id="encryptPanel">
+        <div class="panel-header">
+          <h2><span class="step-num">05</span> Encrypt</h2>
+          <span class="stretch-badge">XChaCha20-Poly1305</span>
+        </div>
+        <div class="encrypt-layout">
+          <div class="encrypt-input-group">
+            <label for="plaintext">Plaintext</label>
+            <textarea id="plaintext" class="encrypt-textarea" placeholder="Type or paste text to encrypt with true randomness..." rows="3"></textarea>
+          </div>
+          <div class="encrypt-actions">
+            <button id="encryptBtn" class="btn btn-primary">Encrypt</button>
+            <button id="decryptBtn" class="btn btn-secondary">Decrypt</button>
+          </div>
+          <div class="encrypt-output-group">
+            <label for="cipherOut">Output</label>
+            <textarea id="cipherOut" class="encrypt-textarea" placeholder="Encrypted output will appear here..." rows="3" readonly></textarea>
+          </div>
+          <div class="key-display" id="keyDisplay" hidden>
+            <div class="key-row"><span class="key-label">Key</span> <code id="keyHex"></code></div>
+            <div class="key-row"><span class="key-label">Nonce</span> <code id="nonceHex"></code></div>
+            <p class="key-warning">⚠ Save these values — you need them to decrypt!</p>
+          </div>
+          <p id="encryptStatus" class="encrypt-status"></p>
+        </div>
       </section>
     </main>
 
     <footer>
-      <p>Open-source (MIT) &middot; educational/demonstrative &middot; entropy is mixed with your OS RNG, so output is never weaker than the system.</p>
+      <p>Open-source (MIT) &middot; 100% local &mdash; no data leaves your machine &middot; entropy mixed with OS CSPRNG, output is never weaker than the system.</p>
     </footer>
 
     <script type="module" src="/src/main.ts"></script>
