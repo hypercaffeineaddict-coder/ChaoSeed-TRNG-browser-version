@@ -147,12 +147,12 @@
             <button id="decryptBtn" class="btn btn-secondary">Decrypt</button>
           </div>
           <div class="encrypt-output-group">
-            <label for="cipherOut">Output</label>
-            <textarea id="cipherOut" class="encrypt-textarea" placeholder="Encrypted output will appear here..." rows="3" readonly></textarea>
+            <label for="cipherOut">Ciphertext</label>
+            <textarea id="cipherOut" class="encrypt-textarea" placeholder="Encrypted output will appear here (or paste here to decrypt)..." rows="3"></textarea>
           </div>
-          <div class="key-display" id="keyDisplay" hidden>
-            <div class="key-row"><span class="key-label">Key</span> <code id="keyHex"></code></div>
-            <div class="key-row"><span class="key-label">Nonce</span> <code id="nonceHex"></code></div>
+          <div class="key-display" id="keyDisplay">
+            <div class="key-row"><label class="key-label" for="keyHex">Key</label> <input type="text" id="keyHex" class="encrypt-input" placeholder="32-byte hex key..." /></div>
+            <div class="key-row"><label class="key-label" for="nonceHex">Nonce</label> <input type="text" id="nonceHex" class="encrypt-input" placeholder="24-byte hex nonce..." /></div>
             <p class="key-warning">⚠ Save these values — you need them to decrypt!</p>
           </div>
           <p id="encryptStatus" class="encrypt-status"></p>

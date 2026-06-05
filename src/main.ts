@@ -232,9 +232,8 @@ $("encryptBtn").addEventListener("click", () => {
     try {
         const enc = encrypt(plain, pool.take);
         ($("cipherOut") as HTMLTextAreaElement).value = enc.ciphertext;
-        $("keyHex").textContent = enc.key;
-        $("nonceHex").textContent = enc.nonce;
-        $("keyDisplay").hidden = false;
+        ($("keyHex") as HTMLInputElement).value = enc.key;
+        ($("nonceHex") as HTMLInputElement).value = enc.nonce;
         $("encryptStatus").textContent = "Encrypted successfully with true random key/nonce.";
         $("encryptStatus").className = "encrypt-status success";
         renderStats();
@@ -246,8 +245,8 @@ $("encryptBtn").addEventListener("click", () => {
 
 $("decryptBtn").addEventListener("click", () => {
     const cipher = ($("cipherOut") as HTMLTextAreaElement).value;
-    const key = $("keyHex").textContent || "";
-    const nonce = $("nonceHex").textContent || "";
+    const key = ($("keyHex") as HTMLInputElement).value;
+    const nonce = ($("nonceHex") as HTMLInputElement).value;
     
     if (!cipher || !key || !nonce) {
         $("encryptStatus").textContent = "Missing ciphertext, key, or nonce.";

@@ -602,11 +602,22 @@ video {
   width: 3rem;
 }
 
-.key-display code {
+.encrypt-input {
+  flex: 1;
   font-family: var(--font-mono);
   font-size: 0.68rem;
   color: var(--accent2);
-  word-break: break-all;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-xs);
+  padding: 0.3rem 0.5rem;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+
+.encrypt-input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .key-warning {
