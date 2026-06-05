@@ -29,14 +29,21 @@ Deploy the `dist/` folder to **Netlify**, **Vercel**, or **GitHub Pages**.
 ## Roadmap (each item = real hours + a devlog)
 - [x] **M1** - scaffold + UI
 - [x] **M2** - capture -> extract -> SHA-3 conditioning -> pool + generators
-- [ ] **M3** - NIST SP 800-22 tests (monobit, runs) + a real min-entropy estimate
-- [ ] **M4** - von Neumann debiasing + a "lava" entropy visualisation + extra sources (mic, double-pendulum sim)
-- [ ] **Stretch** - encrypt a message/file with the entropy (XChaCha20-Poly1305)
+- [x] **M3** - NIST SP 800-22 tests (monobit, runs) + a real min-entropy estimate
+- [x] **M4** - von Neumann debiasing + a "lava" entropy visualisation + extra sources (mic, double-pendulum sim)
+- [x] **Stretch** - encrypt a message/file with the entropy (XChaCha20-Poly1305)
 
 ## Honest note
 ChaoSeed is **educational / demonstrative**. Entropy is mixed with the operating system's
 CSPRNG, so the output is **never weaker than the system RNG**. Conditioning does **not**
 create entropy - the usable random output is bounded by the real physical min-entropy.
+
+## Privacy & Liability Disclaimer
+**100% Client-Side. 0% Tracking.**
+- **No Data Saved**: This application runs entirely within your browser's local memory.
+- **No Network Requests**: No camera feeds, microphone data, encrypted messages, or plaintext ever leave your device.
+- **No Cookies/Storage**: We do not use cookies, LocalStorage, IndexedDB, or any tracking mechanisms. 
+- **Liability**: This software is provided "as is", without warranty of any kind. The authors take absolutely **no responsibility and accept no liability** for any security vulnerabilities, data leaks, browser compromises, or misuse of this software. Use at your own risk.
 
 ## License
 MIT - see [LICENSE](LICENSE).
