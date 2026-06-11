@@ -93,11 +93,51 @@
         </div>
       </section>
 
+      <!-- Quality Index Panel -->
+      <section class="panel quality-panel" id="qualityPanel">
+        <div class="panel-header">
+          <h2><span class="step-num">03a</span> Quality Index</h2>
+        </div>
+        <div class="cqi-display">
+          <div class="cqi-score-box">
+            <div class="cqi-score" id="cqiScore">--</div>
+            <div class="cqi-grade" id="cqiGrade">--</div>
+          </div>
+          <div class="cqi-description" id="cqiDescription">Waiting for entropy data...</div>
+        </div>
+        <div class="cqi-metrics" id="cqiMetrics"></div>
+      </section>
+
+      <!-- Entropy Provenance Panel -->
+      <section class="panel provenance-panel" id="provenancePanel">
+        <div class="panel-header">
+          <h2><span class="step-num">03b</span> Entropy Provenance</h2>
+        </div>
+        <p class="hint">Shows the contribution of each entropy source to your randomness pool.</p>
+        <div class="provenance-container" id="provenanceContainer"></div>
+        <div class="provenance-legend" id="provenanceLegend"></div>
+      </section>
+
+      <!-- Cosmic Entropy Panel -->
+      <section class="panel cosmic-panel" id="cosmicPanel">
+        <div class="panel-header">
+          <h2><span class="step-num">03c</span> Cosmic Entropy</h2>
+        </div>
+        <p class="hint">Optional: Mix contextual data from space as additional entropy salt (not primary source).</p>
+        <div class="cosmic-controls">
+          <button id="toggleAPOD" class="btn btn-secondary" title="NASA Astronomy Picture of the Day">🌌 APOD</button>
+          <button id="toggleNEO" class="btn btn-secondary" title="NASA Near-Earth Objects">☄️ NEO</button>
+          <button id="toggleISS" class="btn btn-secondary" title="ISS Telemetry">🛰️ ISS</button>
+          <button id="toggleWeather" class="btn btn-secondary" title="Space Weather">⛈️ Weather</button>
+        </div>
+        <div class="cosmic-status" id="cosmicStatus">Cosmic sources disabled</div>
+      </section>
+
       <!-- NIST Tests Panel -->
       <section class="panel nist-panel" id="nistPanel">
         <div class="panel-header">
-          <h2><span class="step-num">03</span> Prove It</h2>
-          <span class="nist-label">NIST SP 800-22</span>
+          <h2><span class="step-num">04</span> Prove It</h2>
+          <span class="nist-label">NIST SP 800-22 (Extended)</span>
         </div>
         <p class="hint">Statistical tests run on the last 2048 conditioned bytes, auto-refreshing every 2 seconds.</p>
         <div id="nistResults" class="nist-results">
@@ -112,7 +152,7 @@
       <!-- Use It Panel -->
       <section class="panel use-panel" id="usePanel">
         <div class="panel-header">
-          <h2><span class="step-num">04</span> Use It</h2>
+          <h2><span class="step-num">05</span> Use It</h2>
         </div>
         <div class="gens">
           <button id="genNumber" class="btn btn-gen">
@@ -134,7 +174,7 @@
       <!-- Encryption Panel -->
       <section class="panel encrypt-panel" id="encryptPanel">
         <div class="panel-header">
-          <h2><span class="step-num">05</span> Encrypt</h2>
+          <h2><span class="step-num">06</span> Encrypt</h2>
           <span class="stretch-badge">XChaCha20-Poly1305</span>
         </div>
         <div class="encrypt-layout">

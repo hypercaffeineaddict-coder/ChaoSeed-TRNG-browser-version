@@ -1,12 +1,8 @@
 import { pool, extractFromFrame, extractFromAudio, condition, computeDeltaMap, getStats } from './entropy.ts';
 import { runAllTests, estimateMinEntropy } from './nist.ts';
-import { runAllExtendedTests } from './nistExtended.ts';
 import { randomNumber, generatePassword, rollDice } from './generators.ts';
 import { encrypt, decrypt, canEncrypt } from './crypto.ts';
 import { renderLavaHeatmap, createHeatmapLUT } from './visualization.ts';
-import { updateCosmicEntropy, enableCosmicSource, disableCosmicSource, getCosmicEntropyState } from './cosmicEntropy.ts';
-import { calculateCQI, calculateEntropyQualityScore, calculateNISTScore, calculateBiasResistanceScore, calculateSourceDiversityScore, getCQIBreakdown } from './qualityIndex.ts';
-import { recordEntropyContribution, setSourceActive, getProvenanceForVisualization, getActiveSourceCount } from './entropyProvenance.ts';
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
@@ -29,14 +25,6 @@ let videoStream: MediaStream | null = null;
 
 let lastEntropyEstimationRawBits: number[] = [];
 let nistTimer: number = 0;
-let nistScore: number = 0;
-let lastMinEntropy: number = 0;
-let cosmicEntropyEnabled: { [key: string]: boolean } = {
-    apod: false,
-    neo: false,
-    spaceWeather: false,
-    issPosition: false
-};
 
 function setStatus(s: string) { $("status").textContent = s; }
 
@@ -51,7 +39,6 @@ async function startCamera() {
         $("startBtn").classList.remove("active");
         lavaCanvas.classList.remove("active");
         setStatus("Camera stopped.");
-        setSourceActive('camera', false);
         return;
     }
 
@@ -67,7 +54,6 @@ async function startCamera() {
         lavaCanvas.classList.add("active");
         
         setStatus("Harvesting entropy from your camera...");
-        setSourceActive('camera', true);
         requestAnimationFrame(loop);
     } catch (e) {
         setStatus("Camera unavailable: " + (e as Error).message);
@@ -83,7 +69,6 @@ async function toggleMic() {
         analyser = null;
         $("micBtn").classList.remove("active");
         setStatus(running ? "Camera entropy active." : "All sources stopped.");
-        setSourceActive('microphone', false);
         return;
     }
 
@@ -98,7 +83,6 @@ async function toggleMic() {
         micRunning = true;
         $("micBtn").classList.add("active");
         setStatus("Harvesting entropy from microphone...");
-        setSourceActive('microphone', true);
         
         if (!running) {
             requestAnimationFrame(loop);
@@ -120,7 +104,6 @@ function loop() {
         if (prevFrame) {
             const camBits = extractFromFrame(frame, prevFrame);
             rawBits.push(...camBits);
-            recordEntropyContribution('camera', camBits.length);
             
             // Visualization
             const deltaMap = computeDeltaMap(frame, prevFrame, W, H);
@@ -134,12 +117,12 @@ function loop() {
         analyser.getFloatTimeDomainData(floatData);
         const micBits = extractFromAudio(floatData);
         rawBits.push(...micBits);
-        recordEntropyContribution('microphone', micBits.length);
     }
 
     if (rawBits.length > 0) {
         lastEntropyEstimationRawBits.push(...rawBits);
         if (lastEntropyEstimationRawBits.length > 4096) {
+            // Keep last N bits for min-entropy estimation
             lastEntropyEstimationRawBits = lastEntropyEstimationRawBits.slice(-4096);
         }
         condition(rawBits);
@@ -156,6 +139,7 @@ function renderStats() {
     $("bitBalance").textContent = balance;
     $("poolSize").textContent = String(pool.size());
 
+    // Update hex stream
     const last = pool.lastN(32);
     if (last.length > 0) {
         $("stream").textContent = Array.from(last).map(b => b.toString(16).padStart(2, "0")).join(" ");
@@ -165,15 +149,13 @@ function renderStats() {
 function updateNistTests() {
     if (pool.size() < 256) return;
 
-    const testBytes = pool.lastN(2048);
-    const basicResults = runAllTests(testBytes);
-    const extendedResults = runAllExtendedTests(testBytes);
-    const allResults = [...basicResults, ...extendedResults];
+    const testBytes = pool.lastN(2048); // max 2KB for tests
+    const results = runAllTests(testBytes);
     
     const resultsContainer = $("nistResults");
     resultsContainer.innerHTML = "";
     
-    for (const res of allResults) {
+    for (const res of results) {
         const passClass = res.passed ? 'pass' : 'fail';
         const pValDisplay = res.pValue.toFixed(6);
         resultsContainer.innerHTML += `
@@ -184,12 +166,8 @@ function updateNistTests() {
         `;
     }
 
-    const passCount = allResults.filter(r => r.passed).length;
-    nistScore = calculateNISTScore(passCount, allResults.length);
-
     if (lastEntropyEstimationRawBits.length >= 1024) {
         const ent = estimateMinEntropy(lastEntropyEstimationRawBits);
-        lastMinEntropy = ent.bitsPerSample;
         $("minEntropy").textContent = ent.bitsPerSample.toFixed(2);
         
         const warningEl = $("entropyWarning");
@@ -202,75 +180,11 @@ function updateNistTests() {
             warningEl.hidden = true;
         }
     }
-    
-    updateCQIDisplay();
-    updateProvenanceDisplay();
-}
-
-function updateCQIDisplay() {
-    const stats = getStats();
-    const bitBalance = stats.bitCount ? (stats.ones / stats.bitCount) * 100 : 50;
-    
-    const metrics = {
-        entropyQuality: calculateEntropyQualityScore(lastMinEntropy),
-        nistResults: nistScore,
-        biasResistance: calculateBiasResistanceScore(bitBalance),
-        correlation: 50,
-        sourceDiversity: calculateSourceDiversityScore(getActiveSourceCount())
-    };
-    
-    const cqi = calculateCQI(metrics);
-    $("cqiScore").textContent = cqi.score.toFixed(1);
-    $("cqiGrade").textContent = cqi.grade;
-    $("cqiDescription").textContent = cqi.description;
-    
-    const breakdown = getCQIBreakdown(cqi);
-    const metricsContainer = $("cqiMetrics");
-    metricsContainer.innerHTML = "";
-    for (const metric of breakdown) {
-        const key = metric.label.toLowerCase().replace(/\s+/g, '');
-        const value = (metrics as any)[key] || 0;
-        metricsContainer.innerHTML += `
-            <div class="cqi-metric">
-                <span class="cqi-metric-label">${metric.label}</span>
-                <span class="cqi-metric-value">${Math.round(value)}</span>
-                <span class="cqi-metric-weight">${metric.percentage}</span>
-            </div>
-        `;
-    }
-}
-
-function updateProvenanceDisplay() {
-    const provenanceData = getProvenanceForVisualization();
-    const container = $("provenanceContainer");
-    const legend = $("provenanceLegend");
-    
-    container.innerHTML = "";
-    legend.innerHTML = "";
-    
-    for (const source of provenanceData) {
-        const bar = document.createElement("div");
-        bar.className = "provenance-bar";
-        bar.style.width = source.percentage + "%";
-        bar.style.backgroundColor = source.color;
-        bar.title = `${source.name}: ${source.percentage.toFixed(1)}%`;
-        bar.textContent = source.percentage > 5 ? `${source.percentage.toFixed(0)}%` : "";
-        container.appendChild(bar);
-        
-        const item = document.createElement("div");
-        item.className = "provenance-item";
-        item.innerHTML = `
-            <div class="provenance-color" style="background-color: ${source.color};"></div>
-            <span class="provenance-label">${source.name}</span>
-            <span class="provenance-percent">${source.percentage.toFixed(1)}%</span>
-        `;
-        legend.appendChild(item);
-    }
 }
 
 function showGen(text: string) { $("genOut").textContent = text; }
 
-// UI Binding
+// --- UI Binding ---
 $("startBtn").addEventListener("click", startCamera);
 $("micBtn").addEventListener("click", toggleMic);
 
@@ -350,71 +264,5 @@ $("decryptBtn").addEventListener("click", () => {
         $("encryptStatus").className = "encrypt-status error";
     }
 });
-
-// Cosmic Entropy Controls
-($("toggleAPOD") as HTMLButtonElement).addEventListener("click", () => {
-    cosmicEntropyEnabled['apod'] = !cosmicEntropyEnabled['apod'];
-    if (cosmicEntropyEnabled['apod']) {
-        enableCosmicSource('apod');
-        ($("toggleAPOD") as HTMLButtonElement).classList.add("active");
-    } else {
-        disableCosmicSource('apod');
-        ($("toggleAPOD") as HTMLButtonElement).classList.remove("active");
-    }
-    updateCosmicStatus();
-});
-
-($("toggleNEO") as HTMLButtonElement).addEventListener("click", () => {
-    cosmicEntropyEnabled['neo'] = !cosmicEntropyEnabled['neo'];
-    if (cosmicEntropyEnabled['neo']) {
-        enableCosmicSource('neo');
-        ($("toggleNEO") as HTMLButtonElement).classList.add("active");
-    } else {
-        disableCosmicSource('neo');
-        ($("toggleNEO") as HTMLButtonElement).classList.remove("active");
-    }
-    updateCosmicStatus();
-});
-
-($("toggleISS") as HTMLButtonElement).addEventListener("click", () => {
-    cosmicEntropyEnabled['issPosition'] = !cosmicEntropyEnabled['issPosition'];
-    if (cosmicEntropyEnabled['issPosition']) {
-        enableCosmicSource('issPosition');
-        ($("toggleISS") as HTMLButtonElement).classList.add("active");
-    } else {
-        disableCosmicSource('issPosition');
-        ($("toggleISS") as HTMLButtonElement).classList.remove("active");
-    }
-    updateCosmicStatus();
-});
-
-($("toggleWeather") as HTMLButtonElement).addEventListener("click", () => {
-    cosmicEntropyEnabled['spaceWeather'] = !cosmicEntropyEnabled['spaceWeather'];
-    if (cosmicEntropyEnabled['spaceWeather']) {
-        enableCosmicSource('spaceWeather');
-        ($("toggleWeather") as HTMLButtonElement).classList.add("active");
-    } else {
-        disableCosmicSource('spaceWeather');
-        ($("toggleWeather") as HTMLButtonElement).classList.remove("active");
-    }
-    updateCosmicStatus();
-});
-
-function updateCosmicStatus() {
-    const enabled = Object.values(cosmicEntropyEnabled).filter(v => v).length;
-    const statusEl = $("cosmicStatus");
-    if (enabled > 0) {
-        statusEl.textContent = `${enabled} cosmic source(s) active`;
-        statusEl.classList.add("active");
-        recordEntropyContribution('cosmic', 1);
-    } else {
-        statusEl.textContent = "Cosmic sources disabled";
-        statusEl.classList.remove("active");
-    }
-}
-
-setInterval(async () => {
-    await updateCosmicEntropy();
-}, 60000);
 
 setInterval(updateNistTests, 2000);
